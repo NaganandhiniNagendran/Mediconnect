@@ -21,37 +21,37 @@ export default function Testimonials() {
   ];
 
   return (
-    <section id="benefits" className="py-20 bg-background-light">
+    <section id="benefits" className="testimonials-section">
       <div className="section-container">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-5xl font-bold">
+        <div className="section-header">
+          <h2 className="section-title">
             Trusted by
             <span className="gradient-text"> Thousands</span>
           </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+          <p className="section-subtitle">
             Real stories from our community of patients and healthcare providers
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="testimonials-grid">
           {testimonials.map((testimonial, index) => (
             <div
               key={index}
-              className="bg-white rounded-2xl p-8 shadow-md hover:shadow-xl transition-shadow duration-300 border border-gray-100"
+              className="testimonial-card"
             >
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-14 h-14 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full flex items-center justify-center text-2xl">
+              <div className="testimonial-header">
+                <div className="testimonial-avatar">
                   {testimonial.avatar}
                 </div>
-                <div>
-                  <h4 className="font-bold text-gray-900">{testimonial.name}</h4>
-                  <p className="text-sm text-gray-600">{testimonial.role}</p>
+                <div className="testimonial-info">
+                  <h4>{testimonial.name}</h4>
+                  <p>{testimonial.role}</p>
                 </div>
               </div>
-              <p className="text-gray-600 leading-relaxed">"{testimonial.content}"</p>
-              <div className="flex gap-1 mt-6">
+              <p className="testimonial-content">"{testimonial.content}"</p>
+              <div className="star-rating">
                 {[...Array(5)].map((_, i) => (
-                  <span key={i} className="text-accent-yellow">★</span>
+                  <span key={i} className="star">★</span>
                 ))}
               </div>
             </div>

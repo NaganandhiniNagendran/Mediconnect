@@ -33,26 +33,26 @@ export default function Features() {
   ];
 
   return (
-    <section id="features" className="py-20 bg-background-light">
+    <section id="features" className="features-section">
       <div className="section-container">
-        <div className="text-center mb-16 space-y-4">
-          <h2 className="text-4xl md:text-5xl font-bold">
+        <div className="section-header">
+          <h2 className="section-title">
             Why Choose <span className="gradient-text">MediConnect?</span>
           </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+          <p className="section-subtitle">
             We combine cutting-edge technology with compassionate healthcare to deliver the best telemedicine experience
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="features-grid">
           {features.map((feature, index) => (
             <div
               key={index}
-              className="group bg-white rounded-2xl p-8 hover:shadow-xl transition-all duration-300 hover:-translate-y-2 border border-gray-100"
+              className="feature-card"
             >
-              <div className="text-4xl mb-4">{feature.icon}</div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">{feature.title}</h3>
-              <p className="text-gray-600 leading-relaxed">{feature.description}</p>
+              <div className="feature-icon">{feature.icon}</div>
+              <h3 className="feature-title">{feature.title}</h3>
+              <p className="feature-description">{feature.description}</p>
             </div>
           ))}
         </div>
