@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../backend/firebase';
 import './patient.css';
 
@@ -104,12 +104,6 @@ const FALLBACK_HOSPITALS = [
   { id: 'h-3', name: 'Riverfront Health', location: 'Pune', services: ['Oncology', 'Tele-OPD'], rating: 4.6, contact: '+91 90000 45236', hours: 'Open · Closes 9 PM' },
 ];
 
-const DOCTORS = [
-  { id: 'd-1', name: 'Dr. Kavya Narayanan', specialization: 'Cardiologist', hospital: 'Lotus Care Hospital', experience: '12 yrs', availability: 'Mon-Sat', slots: ['09:00', '11:30', '15:00'] },
-  { id: 'd-2', name: 'Dr. Shankar Iyer', specialization: 'Neurologist', hospital: 'Sunrise Multispeciality', experience: '10 yrs', availability: 'Tue-Sun', slots: ['10:00', '13:00', '17:30'] },
-  { id: 'd-3', name: 'Dr. Meera Rahul', specialization: 'OB-GYN', hospital: 'Lotus Care Hospital', experience: '8 yrs', availability: 'Mon-Fri', slots: ['08:30', '12:00', '16:30'] },
-];
-
 const APPOINTMENTS = [
   { id: 'ap-1', doctor: 'Dr. Kavya Narayanan', hospital: 'Lotus Care Hospital', date: '15 Dec 2025', time: '09:00 AM', status: 'booked' },
   { id: 'ap-2', doctor: 'Dr. Shankar Iyer', hospital: 'Sunrise Multispeciality', date: '11 Dec 2025', time: '01:00 PM', status: 'completed' },
@@ -128,10 +122,12 @@ export default function PatientApp({ role = 'patient' }) {
   const [hospitals, setHospitals] = useState(FALLBACK_HOSPITALS);
   const [hospitalStatus, setHospitalStatus] = useState({ loading: true, error: '' });
   const [hospitalSearch, setHospitalSearch] = useState('');
-  const [doctorSearch, setDoctorSearch] = useState('');
+  const [doctors, setDoctors] = useState([]);
+  const [doctorsStatus, setDoctorsStatus] = useState({ loading: true, error: '' });
+  const [doctorHospitalFilter, setDoctorHospitalFilter] = useState('all');
+  const [doctorSpecFilter, setDoctorSpecFilter] = useState('all');
   const [bookingStep, setBookingStep] = useState(1);
   const [bookingData, setBookingData] = useState({ hospital: '', doctor: '', date: '', slot: '' });
-  const [selectedSlots, setSelectedSlots] = useState({});
 
   useEffect(() => {
     async function loadHospitals() {
@@ -194,15 +190,92 @@ export default function PatientApp({ role = 'patient' }) {
     [hospitals, hospitalSearch]
   );
 
+  useEffect(() => {
+    async function loadDoctors() {
+      try {
+        setDoctorsStatus({ loading: true, error: '' });
+
+        const snapshot = await getDocs(collection(db, 'hospitalDoctors'));
+        const items = [];
+
+        for (const docSnapshot of snapshot.docs) {
+          const data = docSnapshot.data() || {};
+
+          let hospitalName = data.hospitalName || data.hospital || '';
+
+          if (!hospitalName && data.hospitalId) {
+            try {
+              const hospitalDoc = await getDoc(doc(db, 'hospitals', data.hospitalId));
+              if (hospitalDoc.exists()) {
+                const hData = hospitalDoc.data() || {};
+                hospitalName = hData.name || hospitalName;
+              }
+            } catch (error) {
+              console.error('Failed to load hospital for doctor', error);
+            }
+          }
+
+          items.push({
+            id: docSnapshot.id,
+            ...data,
+            hospitalName,
+          });
+        }
+
+        setDoctors(items);
+        setDoctorsStatus({ loading: false, error: '' });
+      } catch (error) {
+        console.error('Failed to load doctors for patient dashboard', error);
+        setDoctorsStatus({ loading: false, error: 'Unable to load doctors. Please try again later.' });
+      }
+    }
+
+    loadDoctors();
+  }, []);
+
+  const doctorSpecializations = useMemo(() => {
+    const specs = new Set();
+    doctors.forEach((doctor) => {
+      if (doctor.specialization) {
+        specs.add(doctor.specialization);
+      }
+    });
+    return Array.from(specs);
+  }, [doctors]);
+
+  const doctorHospitals = useMemo(() => {
+    // Build unique hospital list for doctors, preferring names coming from the hospitals collection
+    const namesById = new Map();
+
+    doctors.forEach((doctor) => {
+      if (doctor.hospitalId) {
+        const fromHospitals = hospitals.find((h) => h.id === doctor.hospitalId);
+        const name =
+          fromHospitals?.name ||
+          doctor.hospitalName ||
+          doctor.hospital ||
+          '';
+        namesById.set(doctor.hospitalId, name);
+      }
+    });
+
+    return Array.from(namesById.entries()).map(([id, name]) => ({ id, name }));
+  }, [doctors, hospitals]);
+
   const filteredDoctors = useMemo(
     () =>
-      DOCTORS.filter(
-        (doctor) =>
-          doctor.name.toLowerCase().includes(doctorSearch.toLowerCase()) ||
-          doctor.specialization.toLowerCase().includes(doctorSearch.toLowerCase()) ||
-          doctor.hospital.toLowerCase().includes(doctorSearch.toLowerCase())
-      ),
-    [doctorSearch]
+      doctors.filter((doctor) => {
+        const matchesHospital =
+          doctorHospitalFilter === 'all' ||
+          doctor.hospitalId === doctorHospitalFilter;
+
+        const matchesSpec =
+          doctorSpecFilter === 'all' ||
+          (doctor.specialization || '').toLowerCase() === doctorSpecFilter.toLowerCase();
+
+        return matchesHospital && matchesSpec;
+      }),
+    [doctors, doctorHospitalFilter, doctorSpecFilter]
   );
 
   if (role !== 'patient') {
@@ -322,32 +395,92 @@ export default function PatientApp({ role = 'patient' }) {
   const renderDoctors = () => (
     <div className="patient-card">
       <h3>Doctors</h3>
-      <input className="patient-input" placeholder="Search specialization or hospital" value={doctorSearch} onChange={(event) => setDoctorSearch(event.target.value)} />
-      <div className="doctor-list" style={{ marginTop: '1rem' }}>
+
+      {doctorsStatus.loading && (
+        <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: 'var(--patient-muted)' }}>
+          Loading doctors...
+        </p>
+      )}
+      {doctorsStatus.error && !doctorsStatus.loading && (
+        <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: 'tomato' }}>
+          {doctorsStatus.error}
+        </p>
+      )}
+
+      <div className="patient-grid" style={{ marginTop: '0.75rem', marginBottom: '0.75rem' }}>
+        <div>
+          <label className="form-label">Filter by hospital</label>
+          <select
+            className="patient-select"
+            value={doctorHospitalFilter}
+            onChange={(event) => setDoctorHospitalFilter(event.target.value)}
+          >
+            <option value="all">All hospitals</option>
+            {doctorHospitals.map((hospital) => (
+              <option key={hospital.id} value={hospital.id}>
+                {hospital.name || 'Unnamed hospital'}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="form-label">Filter by specialization</label>
+          <select
+            className="patient-select"
+            value={doctorSpecFilter}
+            onChange={(event) => setDoctorSpecFilter(event.target.value)}
+          >
+            <option value="all">All specializations</option>
+            {doctorSpecializations.map((spec) => (
+              <option key={spec} value={spec}>
+                {spec}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="doctor-list" style={{ marginTop: '0.5rem' }}>
         {filteredDoctors.map((doctor) => (
           <div key={doctor.id} className="doctor-card">
-            <strong>{doctor.name}</strong>
+            <strong>{doctor.name || 'Doctor name'}</strong>
             <div className="doctor-meta">
-              {doctor.specialization} · {doctor.experience}
+              {(doctor.specialization || 'Specialization not set')}
+              {doctor.experience ? ` · ${doctor.experience}` : ''}
             </div>
-            <div className="doctor-meta">{doctor.hospital}</div>
-            <div className="doctor-meta">Availability: {doctor.availability}</div>
-            <div className="slot-grid" style={{ marginTop: '0.75rem' }}>
-              {doctor.slots.map((slot) => (
-                <button
-                  key={slot}
-                  className={`slot-button ${selectedSlots[doctor.id] === slot ? 'selected' : ''}`}
-                  onClick={() => {
-                    setSelectedSlots((prev) => ({ ...prev, [doctor.id]: slot }));
-                    setBookingData({ hospital: doctor.hospital, doctor: doctor.name, slot, date: bookingData.date || '2025-12-15' });
-                  }}
-                >
-                  {slot}
-                </button>
-              ))}
+            <div className="doctor-meta">
+              {doctor.hospitalName || doctor.hospital || 'Hospital not specified'}
+            </div>
+            {doctor.availability && (
+              <div className="doctor-meta">Availability: {doctor.availability}</div>
+            )}
+            {doctor.consultationTimings && (
+              <div className="doctor-meta">Timings: {doctor.consultationTimings}</div>
+            )}
+            <div className="form-actions" style={{ justifyContent: 'flex-start', marginTop: '0.75rem' }}>
+              <button
+                className="btn-patient-primary"
+                type="button"
+                onClick={() => {
+                  setBookingData((prev) => ({
+                    ...prev,
+                    hospital: doctor.hospitalName || doctor.hospital || prev.hospital,
+                    doctor: doctor.name || prev.doctor,
+                  }));
+                  setActiveNav('booking');
+                  setBookingStep(2);
+                }}
+              >
+                Book appointment
+              </button>
             </div>
           </div>
         ))}
+        {!doctorsStatus.loading && filteredDoctors.length === 0 && (
+          <p style={{ marginTop: '0.75rem', fontSize: '0.9rem', color: 'var(--patient-muted)' }}>
+            No doctors match the selected filters.
+          </p>
+        )}
       </div>
     </div>
   );
