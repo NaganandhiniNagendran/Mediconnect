@@ -10,7 +10,7 @@ import { Select } from '../../components/ui/select'
 
 export default function PatientHospitalList() {
   const [hospitals, setHospitals] = useState([])
-  const [search, setSearch] = useState('')
+  const [selectedHospital, setSelectedHospital] = useState('all')
   const [location, setLocation] = useState('all')
   const [service, setService] = useState('all')
   const [rating, setRating] = useState('all')
@@ -54,6 +54,7 @@ export default function PatientHospitalList() {
   }, [])
 
   const locations = Array.from(new Set(hospitals.map((h) => h.location))).filter(Boolean)
+  const hospitalNames = Array.from(new Set(hospitals.map((h) => h.name))).filter(Boolean).sort()
   const services = Array.from(
     new Set(
       hospitals.flatMap((h) => (Array.isArray(h.services) ? h.services : [])).filter(Boolean)
@@ -62,16 +63,16 @@ export default function PatientHospitalList() {
 
   const filtered = useMemo(() => {
     return hospitals.filter((h) => {
-      const matchesSearch = h.name.toLowerCase().includes(search.toLowerCase())
+      const matchesHospital = selectedHospital === 'all' || h.name === selectedHospital
       const matchesLocation = location === 'all' || h.location === location
       const matchesService = service === 'all' || h.services.includes(service)
       const matchesRating = rating === 'all' || h.rating >= Number(rating)
-      return matchesSearch && matchesLocation && matchesService && matchesRating
+      return matchesHospital && matchesLocation && matchesService && matchesRating
     })
-  }, [search, location, service, rating])
+  }, [selectedHospital, location, service, rating, hospitals])
 
   function reset() {
-    setSearch('')
+    setSelectedHospital('all')
     setLocation('all')
     setService('all')
     setRating('all')
@@ -94,12 +95,18 @@ export default function PatientHospitalList() {
         <CardHeader className="flex flex-wrap items-center gap-3">
           <CardTitle>Search & Filters</CardTitle>
           <div className="ml-auto flex flex-wrap items-center gap-3">
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name"
+            <Select 
+              value={selectedHospital} 
+              onChange={(e) => setSelectedHospital(e.target.value)}
               className="w-48"
-            />
+            >
+              <option value="all">All hospitals</option>
+              {hospitalNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </Select>
             <Select value={location} onChange={(e) => setLocation(e.target.value)} className="w-40">
               <option value="all">All locations</option>
               {locations.map((loc) => (
