@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'add
 import { useNavigate } from 'react-router-dom'
-import { hospitals } from '../../data/mockData'
+import { db } from '../../backend/firebase'
+import { collection, getDocs } from 'firebase/firestore'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
@@ -8,14 +9,56 @@ import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 
 export default function PatientHospitalList() {
+  const [hospitals, setHospitals] = useState([])
   const [search, setSearch] = useState('')
   const [location, setLocation] = useState('all')
   const [service, setService] = useState('all')
   const [rating, setRating] = useState('all')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const navigate = useNavigate()
 
-  const locations = Array.from(new Set(hospitals.map((h) => h.location)))
-  const services = Array.from(new Set(hospitals.flatMap((h) => h.services)))
+  useEffect(() => {
+    async function loadHospitals() {
+      try {
+        const snapshot = await getDocs(collection(db, 'adminHospitals'))
+        const items = snapshot.docs.map((docSnapshot) => {
+          const data = docSnapshot.data() || {}
+          return {
+            id: docSnapshot.id,
+            name: data.name || 'Unnamed Hospital',
+            location: data.location || 'Not specified',
+            services: Array.isArray(data.services)
+              ? data.services
+              : typeof data.services === 'string'
+                ? data.services
+                    .split(',')
+                    .map((service) => service.trim())
+                    .filter(Boolean)
+                : [],
+            rating: data.rating ?? 4.5,
+            description: data.description || '',
+          }
+        })
+        setHospitals(items)
+        setError('')
+      } catch (err) {
+        console.error('Failed to load hospitals', err)
+        setError('Unable to load hospitals right now. Please try again later.')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadHospitals()
+  }, [])
+
+  const locations = Array.from(new Set(hospitals.map((h) => h.location))).filter(Boolean)
+  const services = Array.from(
+    new Set(
+      hospitals.flatMap((h) => (Array.isArray(h.services) ? h.services : [])).filter(Boolean)
+    )
+  )
 
   const filtered = useMemo(() => {
     return hospitals.filter((h) => {
@@ -40,6 +83,10 @@ export default function PatientHospitalList() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Hospitals</h1>
           <p className="text-slate-600">Search and filter hospitals to book your next visit.</p>
+        </div>
+        <div className="ml-auto space-y-1 text-right">
+          {loading && <p className="text-sm text-slate-500">Loading hospitals…</p>}
+          {error && <p className="text-sm text-red-500">{error}</p>}
         </div>
       </div>
 
@@ -90,15 +137,19 @@ export default function PatientHospitalList() {
                   <CardTitle>{hosp.name}</CardTitle>
                   <p className="text-sm text-slate-600">{hosp.location}</p>
                 </div>
-                <Badge variant="success">{hosp.rating} ★</Badge>
+                <Badge variant="success">{(hosp.rating ?? 4.5).toFixed(1)} ★</Badge>
               </div>
-              <p className="text-sm text-slate-600">{hosp.description}</p>
+              {hosp.description ? (
+                <p className="text-sm text-slate-600">{hosp.description}</p>
+              ) : null}
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <div className="flex flex-wrap gap-2">
-                {hosp.services.map((svc) => (
-                  <Badge key={svc}>{svc}</Badge>
-                ))}
+                {Array.isArray(hosp.services)
+                  ? hosp.services.map((svc) => (
+                      <Badge key={svc}>{svc}</Badge>
+                    ))
+                  : null}
               </div>
               <Button onClick={() => navigate(`/patient/hospitals/${hosp.id}`)}>View Details</Button>
             </CardContent>

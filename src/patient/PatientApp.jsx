@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../../backend/firebase';
 import './patient.css';
 
 const iconProps = {
@@ -96,7 +98,7 @@ const PATIENT = {
   phone: '+91 99452 23145',
 };
 
-const HOSPITALS = [
+const FALLBACK_HOSPITALS = [
   { id: 'h-1', name: 'Lotus Care Hospital', location: 'Chennai', services: ['Cardiology', 'Tele-ICU'], rating: 4.7, contact: '+91 90234 12345', hours: 'Open · Closes 11 PM' },
   { id: 'h-2', name: 'Sunrise Multispeciality', location: 'Bengaluru', services: ['Neurology', 'Pediatrics', 'Diagnostics'], rating: 4.8, contact: '+91 99887 56231', hours: 'Open · Closes 10 PM' },
   { id: 'h-3', name: 'Riverfront Health', location: 'Pune', services: ['Oncology', 'Tele-OPD'], rating: 4.6, contact: '+91 90000 45236', hours: 'Open · Closes 9 PM' },
@@ -123,13 +125,74 @@ const NOTIFICATIONS = [
 export default function PatientApp({ role = 'patient' }) {
   const [activeNav, setActiveNav] = useState('profile');
   const [profileForm, setProfileForm] = useState(PATIENT);
+  const [hospitals, setHospitals] = useState(FALLBACK_HOSPITALS);
+  const [hospitalStatus, setHospitalStatus] = useState({ loading: true, error: '' });
   const [hospitalSearch, setHospitalSearch] = useState('');
   const [doctorSearch, setDoctorSearch] = useState('');
   const [bookingStep, setBookingStep] = useState(1);
   const [bookingData, setBookingData] = useState({ hospital: '', doctor: '', date: '', slot: '' });
   const [selectedSlots, setSelectedSlots] = useState({});
 
-  const filteredHospitals = useMemo(() => HOSPITALS.filter((hospital) => hospital.name.toLowerCase().includes(hospitalSearch.toLowerCase()) || hospital.location.toLowerCase().includes(hospitalSearch.toLowerCase())), [hospitalSearch]);
+  useEffect(() => {
+    async function loadHospitals() {
+      try {
+        const snapshot = await getDocs(collection(db, 'adminHospitals'));
+        if (snapshot.empty) {
+          setHospitals(FALLBACK_HOSPITALS);
+          setHospitalStatus({
+            loading: false,
+            error: 'No hospitals found yet. Showing sample hospitals.',
+          });
+          return;
+        }
+
+        const items = snapshot.docs.map((docSnapshot) => {
+          const data = docSnapshot.data() || {};
+          const services =
+            Array.isArray(data.services) && data.services.length > 0
+              ? data.services
+              : typeof data.services === 'string'
+                ? data.services
+                    .split(',')
+                    .map((svc) => svc.trim())
+                    .filter(Boolean)
+                : [];
+
+          return {
+            id: docSnapshot.id,
+            name: data.name || 'Unnamed Hospital',
+            location: data.location || 'Not specified',
+            services,
+            rating: data.rating ?? 4.5,
+            contact: data.phone || data.contact || '',
+            hours: data.timings || 'Timings will be updated soon.',
+          };
+        });
+
+        setHospitals(items);
+        setHospitalStatus({ loading: false, error: '' });
+      } catch (error) {
+        console.error('Failed to load hospitals for patient dashboard', error);
+        setHospitals(FALLBACK_HOSPITALS);
+        setHospitalStatus({
+          loading: false,
+          error: 'Unable to load hospitals from server. Showing sample hospitals.',
+        });
+      }
+    }
+
+    loadHospitals();
+  }, []);
+
+  const filteredHospitals = useMemo(
+    () =>
+      hospitals.filter(
+        (hospital) =>
+          hospital.name.toLowerCase().includes(hospitalSearch.toLowerCase()) ||
+          hospital.location.toLowerCase().includes(hospitalSearch.toLowerCase())
+      ),
+    [hospitals, hospitalSearch]
+  );
 
   const filteredDoctors = useMemo(
     () =>
@@ -213,6 +276,16 @@ export default function PatientApp({ role = 'patient' }) {
   const renderHospitals = () => (
     <div className="patient-card">
       <h3>Discover Hospitals</h3>
+      {hospitalStatus.loading && (
+        <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: 'var(--patient-muted)' }}>
+          Loading hospitals...
+        </p>
+      )}
+      {hospitalStatus.error && !hospitalStatus.loading && (
+        <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: 'tomato' }}>
+          {hospitalStatus.error}
+        </p>
+      )}
       <input className="patient-input" placeholder="Search by name or city" value={hospitalSearch} onChange={(event) => setHospitalSearch(event.target.value)} />
       <div className="patient-grid cols-2" style={{ marginTop: '1rem' }}>
         {filteredHospitals.map((hospital) => (
@@ -226,7 +299,11 @@ export default function PatientApp({ role = 'patient' }) {
               <span className="tag-icon">{ICONS.rating}</span>
               {hospital.rating}
             </span>
-            <p style={{ margin: '0.5rem 0' }}>{hospital.services.join(' • ')}</p>
+            <p style={{ margin: '0.5rem 0' }}>
+              {Array.isArray(hospital.services) && hospital.services.length > 0
+                ? hospital.services.join(' • ')
+                : 'Services will be updated soon.'}
+            </p>
             <small>{hospital.hours}</small>
             <div className="form-actions" style={{ justifyContent: 'flex-start', marginTop: '0.75rem' }}>
               <button className="btn-patient-outline" onClick={() => alert(`Viewing details for ${hospital.name}`)}>
@@ -297,9 +374,13 @@ export default function PatientApp({ role = 'patient' }) {
         {bookingStep === 1 && (
           <div className="patient-grid">
             <label className="form-label">Hospital</label>
-            <select className="patient-select" value={bookingData.hospital} onChange={(event) => setBookingData((prev) => ({ ...prev, hospital: event.target.value }))}>
+            <select
+              className="patient-select"
+              value={bookingData.hospital}
+              onChange={(event) => setBookingData((prev) => ({ ...prev, hospital: event.target.value }))}
+            >
               <option value="">Select</option>
-              {HOSPITALS.map((hospital) => (
+              {hospitals.map((hospital) => (
                 <option key={hospital.id} value={hospital.name}>
                   {hospital.name}
                 </option>
