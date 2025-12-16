@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, getDoc, query, where, getDocs } from 'firebase/firestore';
+import { collection, doc, getDoc, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../backend/firebase';
 import './hospital.css';
 import HospitalProfileSection from './sections/HospitalProfileSection';
@@ -75,7 +75,7 @@ const DEFAULT_HOSPITAL_PROFILE = {
   ratings: 4.6,
 };
 
-const DOCTORS = [
+const DEFAULT_DOCTORS = [
   {
     id: 'd-1',
     name: 'Dr. Kavya Narayanan',
@@ -158,6 +158,8 @@ export default function HospitalApp({ role = 'hospital', hospitalName = 'Lotus C
     }
   });
   const [activeNav, setActiveNav] = useState('profile');
+  const [hospitalId, setHospitalId] = useState(null);
+  const [doctors, setDoctors] = useState(DEFAULT_DOCTORS);
   const [doctorSearch, setDoctorSearch] = useState('');
   const [appointmentFilter, setAppointmentFilter] = useState({ doctor: 'all', date: '2025-12-13' });
   const [announcements, setAnnouncements] = useState(ALERTS);
@@ -165,10 +167,23 @@ export default function HospitalApp({ role = 'hospital', hospitalName = 'Lotus C
   const [hospitalProfile, setHospitalProfile] = useState(DEFAULT_HOSPITAL_PROFILE);
   const [hospitalStatus, setHospitalStatus] = useState({ loading: true, error: '' });
   const [resolvedHospitalName, setResolvedHospitalName] = useState(hospitalName);
+  const [doctorForm, setDoctorForm] = useState({
+    name: '',
+    specialization: '',
+    qualification: '',
+    experience: '',
+    workingHours: '',
+  });
+  const [doctorStatus, setDoctorStatus] = useState({ saving: false, error: '' });
 
   const filteredDoctors = useMemo(
-    () => DOCTORS.filter((doctor) => doctor.name.toLowerCase().includes(doctorSearch.toLowerCase()) || doctor.specialization.toLowerCase().includes(doctorSearch.toLowerCase())),
-    [doctorSearch]
+    () =>
+      (doctors || []).filter(
+        (doctor) =>
+          doctor.name.toLowerCase().includes(doctorSearch.toLowerCase()) ||
+          doctor.specialization.toLowerCase().includes(doctorSearch.toLowerCase())
+      ),
+    [doctorSearch, doctors]
   );
 
   const filteredAppointments = useMemo(
@@ -239,6 +254,7 @@ export default function HospitalApp({ role = 'hospital', hospitalName = 'Lotus C
         };
 
         setHospitalProfile(mergedProfile);
+        setHospitalId(hospitalDocSnapshot.id);
         setResolvedHospitalName(mergedProfile.name || DEFAULT_HOSPITAL_PROFILE.name);
         setHospitalStatus({ loading: false, error: '' });
       } catch (error) {
@@ -249,6 +265,105 @@ export default function HospitalApp({ role = 'hospital', hospitalName = 'Lotus C
 
     fetchHospital();
   }, [sessionInfo]);
+
+  useEffect(() => {
+    const fetchDoctors = async () => {
+      if (!hospitalId) return;
+
+      try {
+        const doctorsRef = collection(db, 'hospitalDoctors');
+        const doctorsQuery = query(doctorsRef, where('hospitalId', '==', hospitalId));
+        const snapshot = await getDocs(doctorsQuery);
+
+        const fetchedDoctors = snapshot.docs.map((docSnapshot) => {
+          const data = docSnapshot.data() || {};
+          return {
+            id: docSnapshot.id,
+            name: data.name || '',
+            specialization: data.specialization || '',
+            qualification: data.qualification || '',
+            experience: typeof data.experience === 'number' ? data.experience : parseInt(data.experience || '0', 10) || 0,
+            workingHours: data.workingHours || '',
+            appointmentsToday: typeof data.appointmentsToday === 'number' ? data.appointmentsToday : 0,
+          };
+        });
+
+        setDoctors(fetchedDoctors.length ? fetchedDoctors : []);
+      } catch (error) {
+        console.error('Failed to load doctors for hospital', error);
+      }
+    };
+
+    fetchDoctors();
+  }, [hospitalId]);
+
+  const handleDoctorFormChange = (field, value) => {
+    setDoctorForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleDoctorReset = () => {
+    setDoctorForm({
+      name: '',
+      specialization: '',
+      qualification: '',
+      experience: '',
+      workingHours: '',
+    });
+    setDoctorStatus({ saving: false, error: '' });
+  };
+
+  const handleDoctorSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!hospitalId) {
+      setDoctorStatus({ saving: false, error: 'Hospital not loaded. Please try again in a moment.' });
+      return;
+    }
+
+    if (!doctorForm.name.trim() || !doctorForm.specialization.trim()) {
+      setDoctorStatus({ saving: false, error: 'Full name and specialization are required.' });
+      return;
+    }
+
+    try {
+      setDoctorStatus({ saving: true, error: '' });
+
+      const experienceYears = parseInt(doctorForm.experience || '0', 10) || 0;
+
+      const docRef = await addDoc(collection(db, 'hospitalDoctors'), {
+        hospitalId,
+        name: doctorForm.name.trim(),
+        specialization: doctorForm.specialization.trim(),
+        qualification: doctorForm.qualification.trim(),
+        experience: experienceYears,
+        workingHours: doctorForm.workingHours.trim(),
+        appointmentsToday: 0,
+        createdAt: serverTimestamp(),
+      });
+
+      const newDoctor = {
+        id: docRef.id,
+        name: doctorForm.name.trim(),
+        specialization: doctorForm.specialization.trim(),
+        qualification: doctorForm.qualification.trim(),
+        experience: experienceYears,
+        workingHours: doctorForm.workingHours.trim(),
+        appointmentsToday: 0,
+      };
+
+      setDoctors((prev) => [newDoctor, ...(prev || [])]);
+      handleDoctorReset();
+      setDoctorStatus({ saving: false, error: '' });
+    } catch (error) {
+      console.error('Failed to add doctor', error);
+      const message =
+        (error && (error.message || error.code)) || 'Failed to add doctor. Please try again.';
+      setDoctorStatus({ saving: false, error: message });
+    }
+  };
 
   if (role !== 'hospital') {
     return (
@@ -349,35 +464,61 @@ export default function HospitalApp({ role = 'hospital', hospitalName = 'Lotus C
         </div>
         <div className="hospital-card">
           <h3>Register Doctor</h3>
-          <form className="hospital-grid cols-2">
+          <form className="hospital-grid cols-2" onSubmit={handleDoctorSubmit}>
             <div>
               <label className="form-label">Full name</label>
-              <input className="hospital-input" placeholder="Dr. Ananya Varma" />
+              <input
+                className="hospital-input"
+                placeholder="Dr. Ananya Varma"
+                value={doctorForm.name}
+                onChange={(event) => handleDoctorFormChange('name', event.target.value)}
+              />
             </div>
             <div>
               <label className="form-label">Specialization</label>
-              <input className="hospital-input" placeholder="Dermatology" />
+              <input
+                className="hospital-input"
+                placeholder="Dermatology"
+                value={doctorForm.specialization}
+                onChange={(event) => handleDoctorFormChange('specialization', event.target.value)}
+              />
             </div>
             <div>
               <label className="form-label">Qualification</label>
-              <input className="hospital-input" placeholder="MD" />
+              <input
+                className="hospital-input"
+                placeholder="MD"
+                value={doctorForm.qualification}
+                onChange={(event) => handleDoctorFormChange('qualification', event.target.value)}
+              />
             </div>
             <div>
               <label className="form-label">Experience</label>
-              <input className="hospital-input" placeholder="10 years" />
+              <input
+                className="hospital-input"
+                placeholder="10 years"
+                value={doctorForm.experience}
+                onChange={(event) => handleDoctorFormChange('experience', event.target.value)}
+              />
             </div>
             <div>
               <label className="form-label">Working hours</label>
-              <input className="hospital-input" placeholder="08:00 - 15:00" />
+              <input
+                className="hospital-input"
+                placeholder="08:00 - 15:00"
+                value={doctorForm.workingHours}
+                onChange={(event) => handleDoctorFormChange('workingHours', event.target.value)}
+              />
             </div>
             <div className="hospital-form-actions">
-              <button type="button" className="btn-hospital-outline">
+              <button type="button" className="btn-hospital-outline" onClick={handleDoctorReset}>
                 Reset
               </button>
-              <button type="button" className="btn-hospital-primary">
-                Add doctor
+              <button type="submit" className="btn-hospital-primary" disabled={doctorStatus.saving}>
+                {doctorStatus.saving ? 'Adding…' : 'Add doctor'}
               </button>
             </div>
+            {doctorStatus.error && <p style={{ color: 'var(--hospital-danger)', gridColumn: '1 / -1' }}>{doctorStatus.error}</p>}
           </form>
         </div>
       </div>
@@ -388,7 +529,7 @@ export default function HospitalApp({ role = 'hospital', hospitalName = 'Lotus C
         <div className="filters">
           <select className="hospital-select" value={appointmentFilter.doctor} onChange={(event) => setAppointmentFilter((prev) => ({ ...prev, doctor: event.target.value }))}>
             <option value="all">All doctors</option>
-            {DOCTORS.map((doctor) => (
+            {(doctors || []).map((doctor) => (
               <option key={doctor.id} value={doctor.name}>
                 {doctor.name}
               </option>
